@@ -1,0 +1,6 @@
+.agents
+.vscode
+bin
+node_modules
+npm/bin
+tmp

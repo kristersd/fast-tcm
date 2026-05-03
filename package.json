@@ -1,0 +1,43 @@
+{
+  "name": "fast-tcm",
+  "version": "0.1.0",
+  "description": "Go rewrite of typed-css-modules",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kristersd/fast-tcm.git"
+  },
+  "homepage": "https://github.com/kristersd/fast-tcm#readme",
+  "bugs": {
+    "url": "https://github.com/kristersd/fast-tcm/issues"
+  },
+  "keywords": [
+    "css-modules",
+    "typescript",
+    "dts",
+    "postcss",
+    "webpack",
+    "go"
+  ],
+  "bin": {
+    "ftcm": "npm/ftcm.js"
+  },
+  "scripts": {
+    "build": "go build -o bin/ftcm ./cmd/ftcm",
+    "test": "go test .",
+    "compare": "./scripts/compare.sh",
+    "compare:time": "node ./scripts/compare-time.js",
+    "prepack": "./scripts/build-npm-binaries.sh"
+  },
+  "files": [
+    "npm",
+    "LICENSE",
+    "README.md"
+  ],
+  "devDependencies": {
+    "typed-css-modules": "0.9.1"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

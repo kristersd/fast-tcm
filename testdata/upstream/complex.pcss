@@ -1,0 +1,98 @@
+/* =========================================
+   1. CSS Modules: Values (Exports)
+   ========================================= */
+@value primaryColor: #bf4040;
+@value secondaryColor: #2ecc71;
+
+/* =========================================
+   2. CSS Modules: Keyframes (Local by default)
+   ========================================= */
+@keyframes slideIn {
+  from {
+    transform: translateY(20px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+/* =========================================
+   3. Main Classes (Nesting, Composes, Cases)
+   ========================================= */
+
+/* camelCase export */
+.wrapperContainer {
+  font-family: "Helvetica Neue", Arial, sans-serif;
+  padding: 16px;
+  background: primaryColor;
+  animation: slideIn 0.5s ease-out forwards;
+}
+
+.wrapperContainer__header {
+  font-weight: bold;
+  color: secondaryColor;
+
+  /* Composition */
+  composes: titleText from "./typography.css";
+}
+
+.wrapperContainer:hover,
+.wrapperContainer:focus-within {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+/* kebab-case export */
+.btn-primary {
+  display: inline-block;
+  cursor: pointer;
+
+  /* Multiple composes */
+  composes: baseButton from "./buttons.css";
+  composes: wrapperContainer;
+}
+
+/* =========================================
+   4. CSS Modules: Global Scope Boundary
+   ========================================= */
+:global {
+  .global-body-class {
+    margin: 0;
+    padding: 0;
+  }
+
+  /* Global keyframes should NOT be exported to .d.ts */
+  @keyframes globalFadeOut {
+    0% {
+      opacity: 1;
+    }
+    100% {
+      opacity: 0;
+    }
+  }
+}
+
+/* Intermixing local and global */
+.localComponent :global(.external-library-class) {
+  color: red;
+}
+
+/* Explicit local wrapper */
+:local(.explicitLocalClass) {
+  border: 1px solid #ccc;
+}
+
+/* =========================================
+   5. Edge Cases for Parsers
+   ========================================= */
+/* Multiple classes on one line */
+.multiClassA,
+.multiClassB {
+  margin-bottom: 1rem;
+}
+
+/* Class inside a pseudo-class */
+:not(.excludedClass) {
+  outline: none;
+}
