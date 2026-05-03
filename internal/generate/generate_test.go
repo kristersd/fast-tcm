@@ -89,3 +89,38 @@ func TestOutputFileName(t *testing.T) {
 		t.Fatalf("expected style.pcss.d.ts, got %s", got)
 	}
 }
+
+func TestGenerateDashes(t *testing.T) {
+	out, err := Generate([]string{"My-Class"}, Config{ExportType: ExportCommonJS, Dashes: true, EOL: "\n"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := `declare const styles: {
+  readonly "MyClass": string;
+};
+export = styles;
+
+`
+	if out.Formatted != want {
+		t.Fatalf("expected:\n%s\ngot:\n%s", want, out.Formatted)
+	}
+}
+
+func TestGenerateInvalidIdentifiers(t *testing.T) {
+	// Tokens starting with numbers are invalid identifiers for named exports
+	out, err := Generate([]string{"1st-class", "validClass"}, Config{ExportType: ExportNamed, EOL: "\n"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Should only include validClass, skip 1st-class
+	if len(out.Tokens) != 1 || out.Tokens[0] != "validClass" {
+		t.Fatalf("expected [validClass], got %v", out.Tokens)
+	}
+}
+
+func TestGenerateInvalidExportType(t *testing.T) {
+	_, err := Generate([]string{"myClass"}, Config{ExportType: "invalid", EOL: "\n"})
+	if err == nil {
+		t.Fatal("expected error for invalid ExportType")
+	}
+}

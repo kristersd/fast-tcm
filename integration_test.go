@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -10,6 +11,29 @@ import (
 	"github.com/kristersd/fast-tcm/internal/generate"
 	"github.com/kristersd/fast-tcm/internal/resolver"
 )
+
+var ftcmBinary string
+
+func TestMain(m *testing.M) {
+	var err error
+	ftcmBinary, err = os.MkdirTemp("", "ftcm-test-*")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "failed to create temp dir: %v\n", err)
+		os.Exit(1)
+	}
+	defer os.RemoveAll(ftcmBinary)
+
+	binaryPath := filepath.Join(ftcmBinary, "ftcm")
+	cmd := exec.Command("go", "build", "-o", binaryPath, "./cmd/ftcm")
+	if output, err := cmd.CombinedOutput(); err != nil {
+		fmt.Fprintf(os.Stderr, "failed to build ftcm binary: %v\n%s", err, output)
+		os.Exit(1)
+	}
+	ftcmBinary = binaryPath
+
+	code := m.Run()
+	os.Exit(code)
+}
 
 func runOnFixture(t *testing.T, filePath string, cfg generate.Config) string {
 	t.Helper()
@@ -329,6 +353,107 @@ func TestCLIOUTDir(t *testing.T) {
 	}
 	if !strings.Contains(string(content), "foo") {
 		t.Fatalf("expected output to contain foo, got:\n%s", string(content))
+	}
+}
+
+func TestCLIConcurrentImports(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Shared stylesheet imported by multiple entries
+	shared := filepath.Join(tmpDir, "shared.css")
+	if err := os.WriteFile(shared, []byte(".sharedClass { color: blue; }\n@import \"./base.css\";"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	base := filepath.Join(tmpDir, "base.css")
+	if err := os.WriteFile(base, []byte(".baseClass { margin: 0; }"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Multiple entry files that all import shared.css
+	for i := 0; i < 10; i++ {
+		src := filepath.Join(tmpDir, fmt.Sprintf("file%d.css", i))
+		content := fmt.Sprintf(".class%d { color: red; }\n@import \"./shared.css\";", i)
+		if err := os.WriteFile(src, []byte(content), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	cliPath := filepath.Join(tmpDir, "ftcm")
+	if err := runCmd("go", "build", "-o", cliPath, "./cmd/ftcm"); err != nil {
+		t.Fatal(err)
+	}
+
+	out, err := runCmdOutput(cliPath, tmpDir)
+	if err != nil {
+		t.Fatalf("cli failed: %v\n%s", err, out)
+	}
+
+	// Verify every entry file got a correct .d.ts with both its own class and shared tokens
+	for i := 0; i < 10; i++ {
+		expected := filepath.Join(tmpDir, fmt.Sprintf("file%d.css.d.ts", i))
+		content, err := os.ReadFile(expected)
+		if err != nil {
+			t.Fatalf("expected file %s: %v", expected, err)
+		}
+		if !strings.Contains(string(content), fmt.Sprintf("class%d", i)) {
+			t.Fatalf("expected output to contain class%d, got:\n%s", i, string(content))
+		}
+		if !strings.Contains(string(content), "sharedClass") {
+			t.Fatalf("expected output to contain sharedClass, got:\n%s", string(content))
+		}
+		if !strings.Contains(string(content), "baseClass") {
+			t.Fatalf("expected output to contain baseClass, got:\n%s", string(content))
+		}
+	}
+}
+
+func TestCLIVersion(t *testing.T) {
+	output, err := runCmdOutput(ftcmBinary, "--version")
+	if err != nil {
+		t.Fatalf("--version failed: %v", err)
+	}
+	if !strings.Contains(string(output), "ftcm version") {
+		t.Fatalf("expected version output, got: %s", output)
+	}
+}
+
+func TestCLIRootDotSearch(t *testing.T) {
+	tmpDir := t.TempDir()
+	cssFile := filepath.Join(tmpDir, "test.css")
+	if err := os.WriteFile(cssFile, []byte(".myClass { color: red; }"), 0644); err != nil {
+		t.Fatalf("write css: %v", err)
+	}
+
+	outDir := filepath.Join(tmpDir, "out")
+	if err := os.MkdirAll(outDir, 0755); err != nil {
+		t.Fatalf("mkdir outDir: %v", err)
+	}
+
+	if err := runCmd(ftcmBinary, "-o", outDir, tmpDir); err != nil {
+		t.Fatalf("ftcm failed: %v", err)
+	}
+
+	dtsFile := filepath.Join(outDir, "test.css.d.ts")
+	if _, err := os.Stat(dtsFile); os.IsNotExist(err) {
+		t.Fatalf("expected output file %s not found", dtsFile)
+	}
+}
+
+func TestCLIInvalidExportType(t *testing.T) {
+	tmpDir := t.TempDir()
+	cssFile := filepath.Join(tmpDir, "test.css")
+	if err := os.WriteFile(cssFile, []byte(".myClass { color: red; }"), 0644); err != nil {
+		t.Fatalf("write css: %v", err)
+	}
+
+	// Should fail with invalid export type
+	output, err := runCmdOutput(ftcmBinary, "--exportType", "invalid", tmpDir)
+	if err == nil {
+		t.Fatalf("expected error for invalid exportType, got success")
+	}
+	if !strings.Contains(string(output), "invalid") || !strings.Contains(string(output), "export") {
+		t.Fatalf("expected error message about exportType, got: %s", output)
 	}
 }
 

@@ -2,5 +2,6 @@
 .vscode
 bin
 node_modules
-npm/bin
+npm/*
+!npm/ftcm.js
 tmp

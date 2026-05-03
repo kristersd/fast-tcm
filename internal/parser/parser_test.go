@@ -150,3 +150,64 @@ func TestDashesCamelCase(t *testing.T) {
 		t.Fatalf("expected MyClass, got %s", DashesCamelCase("My-Class"))
 	}
 }
+
+func TestExtractTokensAnimationKeywords(t *testing.T) {
+	src := `@keyframes myAnimation { 0% { opacity: 0; } 100% { opacity: 1; } }
+.animated { animation: myAnimation linear infinite; }`
+	tokens, err := ExtractTokens([]byte(src))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// Should extract myAnimation keyframe, but not linear or infinite (known keywords)
+	found := false
+	for _, k := range tokens.Keyframes {
+		if k == "myAnimation" {
+			found = true
+		}
+		if k == "linear" || k == "infinite" {
+			t.Fatalf("should not extract keyword %s", k)
+		}
+	}
+	if !found {
+		t.Fatalf("expected myAnimation keyframe, got %v", tokens.Keyframes)
+	}
+}
+
+func TestExtractTokensMediaQuery(t *testing.T) {
+	src := `@media (max-width: 600px) { .responsive { color: red; } }
+.static { color: blue; }`
+	tokens, err := ExtractTokens([]byte(src))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// Should extract both classes inside and outside media query
+	if len(tokens.Classes) != 2 {
+		t.Fatalf("expected 2 classes, got %d: %v", len(tokens.Classes), tokens.Classes)
+	}
+}
+
+func TestIsValidIdentifier(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  bool
+	}{
+		{"simple", "myClass", true},
+		{"camelCase", "MyClass", true},
+		{"underscore", "_private", true},
+		{"dollar", "$var", true},
+		{"number after", "class1", true},
+		{"leading number", "1class", false},
+		{"hyphen", "my-class", false},
+		{"space", "my class", false},
+		{"empty", "", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := IsValidIdentifier(tt.input)
+			if got != tt.want {
+				t.Fatalf("IsValidIdentifier(%q) = %v, want %v", tt.input, got, tt.want)
+			}
+		})
+	}
+}

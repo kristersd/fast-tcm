@@ -2,6 +2,7 @@ package parser
 
 import (
 	"io"
+	"slices"
 	"strings"
 
 	"github.com/tdewolff/parse/v2"
@@ -22,6 +23,19 @@ type Tokens struct {
 type Compose struct {
 	Classes []string
 	From    string
+}
+
+// knownKeywords is a set of CSS keywords that should not be treated as animation names.
+var knownKeywords = map[string]bool{
+	"none": true, "initial": true, "inherit": true, "unset": true,
+	"revert": true, "revert-layer": true,
+	"linear": true, "ease": true, "ease-in": true, "ease-out": true,
+	"ease-in-out": true, "step-start": true, "step-end": true,
+	"normal": true, "reverse": true, "alternate": true, "alternate-reverse": true,
+	"forwards": true, "backwards": true, "both": true,
+	"running": true, "paused": true,
+	"infinite": true,
+	"auto": true, "default": true,
 }
 
 // ExtractTokens parses CSS/PCSS content and extracts CSS Modules tokens.
@@ -143,11 +157,28 @@ func extractComposesFromCurrentRule(l *css.Lexer, t *Tokens, className string) {
 			}
 			continue
 		}
-		if blockDepth > 1 {
+		// Skip global() blocks at any depth
+		if typ == css.FunctionToken && string(text) == "global(" {
+			for {
+				t2, _ := l.Next()
+				if t2 == css.ErrorToken || t2 == css.RightParenthesisToken {
+					break
+				}
+			}
 			continue
 		}
 
-		if typ == css.IdentToken && string(text) == "composes" {
+		// Extract class names from selectors at any depth
+		if typ == css.DelimToken && text[0] == '.' {
+			className2, err := readClassName(l)
+			if err == nil && className2 != "" {
+				t.Classes = append(t.Classes, className2)
+			}
+			continue
+		}
+
+		// Only look for composes at the top level of the current block
+		if blockDepth == 1 && typ == css.IdentToken && string(text) == "composes" {
 			// expect :
 			t2, _ := l.Next()
 			for t2 == css.WhitespaceToken {
@@ -191,6 +222,48 @@ func extractComposesFromCurrentRule(l *css.Lexer, t *Tokens, className string) {
 					From:    from,
 				})
 			}
+			continue
+		}
+
+		// Extract animation names from animation / animation-name properties at any depth
+		if typ == css.IdentToken && (string(text) == "animation" || string(text) == "animation-name") {
+			// expect :
+			t2, _ := l.Next()
+			for t2 == css.WhitespaceToken {
+				t2, _ = l.Next()
+			}
+			if t2 != css.ColonToken {
+				continue
+			}
+			extractAnimationNames(l, t)
+		}
+	}
+}
+
+func extractAnimationNames(l *css.Lexer, t *Tokens) {
+	for {
+		typ, text := l.Next()
+		if typ == css.ErrorToken || typ == css.SemicolonToken {
+			break
+		}
+		if typ == css.WhitespaceToken {
+			continue
+		}
+		// Skip function calls like var(...)
+		if typ == css.FunctionToken {
+			for {
+				t2, _ := l.Next()
+				if t2 == css.ErrorToken || t2 == css.RightParenthesisToken {
+					break
+				}
+			}
+			continue
+		}
+		if typ == css.IdentToken {
+			name := string(text)
+			if !knownKeywords[name] {
+				t.Keyframes = append(t.Keyframes, name)
+			}
 		}
 	}
 }
@@ -214,7 +287,7 @@ func handleAtRule(l *css.Lexer, name []byte, t *Tokens) error {
 	case "@value":
 		return handleValue(l, t)
 	}
-	return skipAtRuleBlock(l)
+	return skipAtRuleBlock(l, t)
 }
 
 func handleKeyframes(l *css.Lexer, t *Tokens) error {
@@ -224,7 +297,7 @@ func handleKeyframes(l *css.Lexer, t *Tokens) error {
 	}
 
 	if typ != css.IdentToken {
-		return skipAtRuleBlock(l)
+		return skipAtRuleBlock(l, t)
 	}
 
 	name := string(text)
@@ -255,11 +328,11 @@ func handleKeyframes(l *css.Lexer, t *Tokens) error {
 				}
 			}
 		}
-		return skipAtRuleBlock(l)
+		return skipAtRuleBlock(l, t)
 	}
 
 	t.Keyframes = append(t.Keyframes, name)
-	return skipAtRuleBlock(l)
+	return skipAtRuleBlock(l, t)
 }
 
 func handleValue(l *css.Lexer, t *Tokens) error {
@@ -334,14 +407,19 @@ func readClassName(l *css.Lexer) (string, error) {
 	return string(text), nil
 }
 
-func skipAtRuleBlock(l *css.Lexer) error {
-	typ, _ := l.Next()
-	for typ == css.WhitespaceToken {
-		typ, _ = l.Next()
-	}
-
-	if typ != css.LeftBraceToken {
-		return skipUntilSemicolon(l)
+func skipAtRuleBlock(l *css.Lexer, t *Tokens) error {
+	// Scan forward until we find { or ; (at-rules like @media have a prelude before {)
+	for {
+		typ, _ := l.Next()
+		if typ == css.ErrorToken {
+			return nil
+		}
+		if typ == css.LeftBraceToken {
+			break
+		}
+		if typ == css.SemicolonToken {
+			return nil
+		}
 	}
 
 	depth := 1
@@ -350,9 +428,25 @@ func skipAtRuleBlock(l *css.Lexer) error {
 		if typ == css.ErrorToken {
 			break
 		}
-		if text[0] == '{' {
+		if typ == css.FunctionToken && string(text) == "global(" {
+			for {
+				t2, _ := l.Next()
+				if t2 == css.ErrorToken || t2 == css.RightParenthesisToken {
+					break
+				}
+			}
+			continue
+		}
+		if typ == css.DelimToken && len(text) > 0 && text[0] == '.' {
+			className, err := readClassName(l)
+			if err == nil && className != "" {
+				t.Classes = append(t.Classes, className)
+			}
+			continue
+		}
+		if len(text) > 0 && text[0] == '{' {
 			depth++
-		} else if text[0] == '}' {
+		} else if len(text) > 0 && text[0] == '}' {
 			depth--
 			if depth == 0 {
 				break
@@ -381,22 +475,13 @@ func NormalizeTokens(tokens []string) []string {
 			uniq = append(uniq, t)
 		}
 	}
-	for i := 0; i < len(uniq); i++ {
-		for j := i + 1; j < len(uniq); j++ {
-			if uniq[i] > uniq[j] {
-				uniq[i], uniq[j] = uniq[j], uniq[i]
-			}
-		}
-	}
+	slices.Sort(uniq)
 	return uniq
 }
 
 // CamelCase converts a token to camelCase (lowercases first part).
 func CamelCase(s string) string {
 	parts := strings.Split(s, "-")
-	if len(parts) == 0 {
-		return s
-	}
 	result := strings.ToLower(parts[0])
 	for i := 1; i < len(parts); i++ {
 		if len(parts[i]) > 0 {
@@ -409,9 +494,6 @@ func CamelCase(s string) string {
 // DashesCamelCase only camelizes dashes, keeps first-part case.
 func DashesCamelCase(s string) string {
 	parts := strings.Split(s, "-")
-	if len(parts) == 0 {
-		return s
-	}
 	result := parts[0]
 	for i := 1; i < len(parts); i++ {
 		if len(parts[i]) > 0 {
@@ -459,13 +541,4 @@ func (t *Tokens) AllTokens() []string {
 	all = append(all, t.Values...)
 	all = append(all, t.Exports...)
 	return NormalizeTokens(all)
-}
-
-// ErrorToken wraps lexer errors.
-type ErrorToken struct {
-	Msg string
-}
-
-func (e *ErrorToken) Error() string {
-	return e.Msg
 }

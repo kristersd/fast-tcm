@@ -1,21 +1,26 @@
 package run
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 
 	"github.com/bmatcuk/doublestar/v4"
+	"golang.org/x/sync/errgroup"
+
 	"github.com/kristersd/fast-tcm/internal/generate"
 	"github.com/kristersd/fast-tcm/internal/resolver"
 )
+
+// ErrDifferent is returned by Run when --listDifferent finds differences.
+var ErrDifferent = errors.New("some files are different or missing")
 
 // Options holds CLI options.
 type Options struct {
 	Pattern                  string
 	OutDir                   string
-	Watch                    bool
 	CamelCase                bool
 	NamedExports             bool
 	ExportType               string
@@ -39,12 +44,12 @@ func Run(searchDir string, opts Options) error {
 		baseDir = opts.OutDir
 	}
 
-	files, err := doublestar.FilepathGlob(pattern)
+	files, err := collectFiles(searchDir, pattern)
 	if err != nil {
 		return fmt.Errorf("glob: %w", err)
 	}
 
-	if len(files) == 0 && !opts.Watch {
+	if len(files) == 0 {
 		return nil
 	}
 
@@ -67,39 +72,83 @@ func Run(searchDir string, opts Options) error {
 		cfg.CamelCase = true
 	}
 
+	// Use errgroup with bounded concurrency
+	g := new(errgroup.Group)
+	g.SetLimit(32) // reasonable default limit
+
 	if opts.ListDifferent {
-		var hasDiff bool
 		for _, f := range files {
-			if err := processFile(f, searchDir, res, cfg, baseDir, opts, true); err != nil {
-				if !opts.Silent {
-					fmt.Fprintf(os.Stderr, "[ERROR] %v\n", err)
-				}
-				hasDiff = true
-			}
+			f := f // capture loop variable
+			g.Go(func() error {
+				return checkFile(f, searchDir, res, cfg, baseDir, opts)
+			})
 		}
-		if hasDiff {
-			os.Exit(1)
+	} else {
+		for _, f := range files {
+			f := f // capture loop variable
+			g.Go(func() error {
+				return writeFile(f, searchDir, res, cfg, baseDir, opts)
+			})
 		}
-		return nil
 	}
 
-	if !opts.Watch {
-		for _, f := range files {
-			if err := processFile(f, searchDir, res, cfg, baseDir, opts, false); err != nil {
-				if !opts.Silent {
-					fmt.Fprintf(os.Stderr, "[ERROR] %v\n", err)
-				}
-			}
+	err = g.Wait()
+	if err != nil {
+		// Check if it's our sentinel error
+		if errors.Is(err, ErrDifferent) {
+			return ErrDifferent
 		}
-		return nil
+		return err
 	}
 
-	// Watch mode would use fsnotify; for now, stub
-	fmt.Println("Watch mode not yet implemented")
 	return nil
 }
 
-func processFile(filePath string, searchDir string, res *resolver.Resolver, cfg generate.Config, baseDir string, opts Options, checkOnly bool) error {
+func collectFiles(searchDir string, pattern string) ([]string, error) {
+	// If searchDir is a single file, use it directly
+	info, err := os.Stat(searchDir)
+	if err == nil && !info.IsDir() {
+		return []string{searchDir}, nil
+	}
+
+	var files []string
+
+	err = filepath.WalkDir(searchDir, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return nil
+		}
+
+		// Skip symlinks entirely (both files and directories)
+		if d.Type()&os.ModeSymlink != 0 {
+			if d.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+
+		// Skip hidden directories (but not the search root itself)
+		if d.IsDir() && strings.HasPrefix(d.Name(), ".") && path != searchDir {
+			return filepath.SkipDir
+		}
+
+		// Skip directories (continue walking)
+		if d.IsDir() {
+			return nil
+		}
+
+		// Match file against pattern
+		matched, err := doublestar.Match(pattern, filepath.ToSlash(path))
+		if err == nil && matched {
+			files = append(files, path)
+		}
+
+		return nil
+	})
+
+	return files, err
+}
+
+func checkFile(filePath string, searchDir string, res *resolver.Resolver, cfg generate.Config, baseDir string, opts Options) error {
 	tokens, err := res.Resolve(filePath)
 	if err != nil {
 		return err
@@ -110,29 +159,36 @@ func processFile(filePath string, searchDir string, res *resolver.Resolver, cfg 
 		return err
 	}
 
-	rel, _ := filepath.Rel(searchDir, filePath)
-	if rel == "" || strings.HasPrefix(rel, "..") {
-		rel = filePath
+	outName := computeOutputPath(filePath, searchDir, baseDir, cfg)
+
+	existing, err := os.ReadFile(outName)
+	if err != nil {
+		if !opts.Silent {
+			fmt.Fprintf(os.Stderr, "[ERROR] Type file needs to be generated for '%s'\n", filePath)
+		}
+		return ErrDifferent
 	}
-	outName := generate.OutputFileName(rel, cfg)
-	if baseDir != "." {
-		outName = filepath.Join(baseDir, outName)
-	} else {
-		outName = filepath.Join(filepath.Dir(filePath), filepath.Base(outName))
+	if strings.TrimSpace(string(existing)) != strings.TrimSpace(out.Formatted) {
+		if !opts.Silent {
+			fmt.Fprintf(os.Stderr, "[ERROR] Check type definitions for '%s'\n", outName)
+		}
+		return ErrDifferent
+	}
+	return nil
+}
+
+func writeFile(filePath string, searchDir string, res *resolver.Resolver, cfg generate.Config, baseDir string, opts Options) error {
+	tokens, err := res.Resolve(filePath)
+	if err != nil {
+		return err
 	}
 
-	if checkOnly {
-		existing, err := os.ReadFile(outName)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "[ERROR] Type file needs to be generated for '%s'\n", filePath)
-			return fmt.Errorf("missing %s", outName)
-		}
-		if strings.TrimSpace(string(existing)) != strings.TrimSpace(out.Formatted) {
-			fmt.Fprintf(os.Stderr, "[ERROR] Check type definitions for '%s'\n", outName)
-			return fmt.Errorf("different %s", outName)
-		}
-		return nil
+	out, err := generate.Generate(tokens, cfg)
+	if err != nil {
+		return err
 	}
+
+	outName := computeOutputPath(filePath, searchDir, baseDir, cfg)
 
 	dir := filepath.Dir(outName)
 	if err := os.MkdirAll(dir, 0755); err != nil {
@@ -147,4 +203,22 @@ func processFile(filePath string, searchDir string, res *resolver.Resolver, cfg 
 		fmt.Println("Wrote " + outName)
 	}
 	return nil
+}
+
+func computeOutputPath(filePath, searchDir, baseDir string, cfg generate.Config) string {
+	rel, _ := filepath.Rel(searchDir, filePath)
+	if rel == "" || strings.HasPrefix(rel, "..") {
+		rel = filePath
+	}
+	// If searchDir was a single file, use just the basename
+	if filePath == searchDir {
+		rel = filepath.Base(filePath)
+	}
+	outName := generate.OutputFileName(rel, cfg)
+	if baseDir != "." {
+		outName = filepath.Join(baseDir, outName)
+	} else {
+		outName = filepath.Join(filepath.Dir(filePath), filepath.Base(outName))
+	}
+	return outName
 }

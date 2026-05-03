@@ -68,7 +68,7 @@ try {
   execSync(`${tcmPath} "${filePath}" --out "${tcmOutDir}"`, { stdio: 'pipe' });
 
   // Run ftcm
-  execSync(`${ftcmPath} "${filePath}" --out "${ftcmOutDir}"`, { stdio: 'pipe' });
+  execSync(`${ftcmPath} "${filePath}" --outDir "${ftcmOutDir}"`, { stdio: 'pipe' });
 
   // Compare outputs (normalize line endings)
   const tcmFiles = fs.readdirSync(tcmOutDir);
@@ -109,7 +109,7 @@ console.log(`Running ${warmup} warmup iterations...`);
 for (let i = 0; i < warmup; i++) {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ftcm-warmup-'));
   try {
-    execSync(`${ftcmPath} "${filePath}" --out "${tmpDir}"`, { stdio: 'pipe' });
+    execSync(`${ftcmPath} "${filePath}" --outDir "${tmpDir}"`, { stdio: 'pipe' });
     execSync(`${tcmPath} "${filePath}" --out "${tmpDir}"`, { stdio: 'pipe' });
   } finally {
     execSync(`rm -rf "${tmpDir}"`);
@@ -126,7 +126,7 @@ for (let i = 0; i < iterations; i++) {
   try {
     // Time ftcm
     const ftcmStart = process.hrtime.bigint();
-    execSync(`${ftcmPath} "${filePath}" --out "${tmpDir}"`, { stdio: 'pipe' });
+    execSync(`${ftcmPath} "${filePath}" --outDir "${tmpDir}"`, { stdio: 'pipe' });
     const ftcmEnd = process.hrtime.bigint();
     ftcmTimes.push(Number(ftcmEnd - ftcmStart) / 1e6); // Convert to ms
 

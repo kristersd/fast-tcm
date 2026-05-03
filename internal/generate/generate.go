@@ -2,7 +2,7 @@ package generate
 
 import (
 	"fmt"
-	"path"
+	"path/filepath"
 	"strings"
 
 	"github.com/kristersd/fast-tcm/internal/parser"
@@ -30,15 +30,14 @@ type Config struct {
 
 // Output represents a generated .d.ts file.
 type Output struct {
-	Tokens           []string
-	Formatted        string
-	OutputFileName   string
+	Tokens    []string
+	Formatted string
 }
 
 // Generate produces TypeScript definitions from raw tokens.
 func Generate(tokens []string, cfg Config) (*Output, error) {
 	converted := make([]string, 0, len(tokens))
-	seen := make(map[string]bool)
+	seen := make(map[string]struct{})
 
 	for _, t := range tokens {
 		key := parser.ConvertKey(t, cfg.CamelCase, cfg.Dashes)
@@ -48,10 +47,10 @@ func Generate(tokens []string, cfg Config) (*Output, error) {
 				continue
 			}
 		}
-		if seen[key] {
+		if _, ok := seen[key]; ok {
 			continue
 		}
-		seen[key] = true
+		seen[key] = struct{}{}
 		converted = append(converted, key)
 	}
 
@@ -90,7 +89,7 @@ func Generate(tokens []string, cfg Config) (*Output, error) {
 			lines = append(lines, "")
 			formatted = strings.Join(lines, cfg.EOL) + cfg.EOL
 		}
-	default: // commonjs
+	case ExportCommonJS:
 		if len(converted) == 0 {
 			formatted = "export {};"
 		} else {
@@ -103,6 +102,8 @@ func Generate(tokens []string, cfg Config) (*Output, error) {
 			lines = append(lines, "")
 			formatted = strings.Join(lines, cfg.EOL) + cfg.EOL
 		}
+	default:
+		return nil, fmt.Errorf("unsupported export type: %s", et)
 	}
 
 	return &Output{
@@ -113,7 +114,7 @@ func Generate(tokens []string, cfg Config) (*Output, error) {
 
 // OutputFileName computes the output filename.
 func OutputFileName(inputPath string, cfg Config) string {
-	ext := path.Ext(inputPath)
+	ext := filepath.Ext(inputPath)
 	base := inputPath
 	if cfg.DropExtension || cfg.AllowArbitraryExtensions {
 		base = strings.TrimSuffix(inputPath, ext)
