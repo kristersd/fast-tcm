@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"golang.org/x/sync/singleflight"
 
@@ -17,7 +18,7 @@ type FileReader func(path string) ([]byte, error)
 // Resolver resolves CSS Modules dependencies and collects all exported tokens.
 type Resolver struct {
 	read    FileReader
-	cache   map[string]*parser.Tokens
+	cache   sync.Map // key string -> *parser.Tokens
 	group   singleflight.Group
 	rootDir string
 }
@@ -29,24 +30,22 @@ func NewResolver(rootDir string, read FileReader) *Resolver {
 	}
 	return &Resolver{
 		read:    read,
-		cache:   make(map[string]*parser.Tokens),
 		rootDir: rootDir,
 	}
 }
 
 // ClearCache clears the parse cache.
 func (r *Resolver) ClearCache() {
-	r.cache = make(map[string]*parser.Tokens)
+	r.cache = sync.Map{}
 	r.group = singleflight.Group{}
 }
 
 // Resolve parses a CSS file and resolves all composes/import dependencies.
 func (r *Resolver) Resolve(filePath string) ([]string, error) {
-	visiting := make(map[string]bool)
-	return r.resolveWithVisiting(filePath, visiting)
+	return r.resolveWithVisiting(filePath, nil)
 }
 
-func (r *Resolver) resolveWithVisiting(filePath string, visiting map[string]bool) ([]string, error) {
+func (r *Resolver) resolveWithVisiting(filePath string, visiting []string) ([]string, error) {
 	tokens, err := r.resolveFile(filePath)
 	if err != nil {
 		return nil, err
@@ -54,21 +53,31 @@ func (r *Resolver) resolveWithVisiting(filePath string, visiting map[string]bool
 
 	all := tokens.AllTokens()
 
+	// Fast path: no imports means no cycle resolution needed, and AllTokens
+	// is already normalized.
+	if len(tokens.Imports) == 0 {
+		return all, nil
+	}
+
 	// resolve @import token merging (same as upstream behavior)
 	for _, imp := range tokens.Imports {
 		resolvedPath := r.resolveImportPath(filePath, imp)
 		absPath, _ := filepath.Abs(resolvedPath)
 
-		// Cycle detection: if we're already visiting this path, warn and skip
-		if visiting[absPath] {
+		// Cycle detection: linear scan over visiting slice (shallow chains, rare cycles)
+		found := false
+		for _, v := range visiting {
+			if v == absPath {
+				found = true
+				break
+			}
+		}
+		if found {
 			fmt.Fprintf(os.Stderr, "[WARN] circular import detected: %s\n", absPath)
 			continue
 		}
 
-		// Mark as visiting
-		visiting[absPath] = true
-
-		imported, err := r.resolveWithVisiting(resolvedPath, visiting)
+		imported, err := r.resolveWithVisiting(resolvedPath, append(visiting, absPath))
 		if err != nil {
 			// upstream is forgiving on import resolution failures in some cases
 			continue
@@ -86,12 +95,19 @@ func (r *Resolver) resolveFile(filePath string) (*parser.Tokens, error) {
 	}
 
 	// Check cache first
-	if cached, ok := r.cache[absPath]; ok {
-		return cached, nil
+	if cached, ok := r.cache.Load(absPath); ok {
+		return cached.(*parser.Tokens), nil
 	}
 
-	// Use singleflight to ensure only one parse per file under concurrent load
+	// Use singleflight to ensure only one parse per file under concurrent load.
+	// Multiple goroutines may race to the Load above; singleflight collapses
+	// the redundant ones. A double-check inside Do handles the case where a
+	// previous caller stored the result between our Load and entering Do.
 	val, err, _ := r.group.Do(absPath, func() (interface{}, error) {
+		if cached, ok := r.cache.Load(absPath); ok {
+			return cached, nil
+		}
+
 		src, err := r.read(filePath)
 		if err != nil {
 			return nil, err
@@ -102,8 +118,7 @@ func (r *Resolver) resolveFile(filePath string) (*parser.Tokens, error) {
 			return nil, fmt.Errorf("parse %s: %w", filePath, err)
 		}
 
-		// Store in cache
-		r.cache[absPath] = tokens
+		r.cache.Store(absPath, tokens)
 		return tokens, nil
 	})
 

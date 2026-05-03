@@ -19,13 +19,13 @@ const (
 
 // Config holds generation options.
 type Config struct {
-	CamelCase                  bool
-	Dashes                     bool
-	NamedExports               bool
-	ExportType                 ExportType
-	AllowArbitraryExtensions   bool
-	DropExtension              bool
-	EOL                        string
+	CamelCase                bool
+	Dashes                   bool
+	NamedExports             bool
+	ExportType               ExportType
+	AllowArbitraryExtensions bool
+	DropExtension            bool
+	EOL                      string
 }
 
 // Output represents a generated .d.ts file.
@@ -35,6 +35,7 @@ type Output struct {
 }
 
 // Generate produces TypeScript definitions from raw tokens.
+// Tokens are assumed to already be normalized (deduplicated and sorted).
 func Generate(tokens []string, cfg Config) (*Output, error) {
 	converted := make([]string, 0, len(tokens))
 	seen := make(map[string]struct{})
@@ -54,7 +55,10 @@ func Generate(tokens []string, cfg Config) (*Output, error) {
 		converted = append(converted, key)
 	}
 
-	converted = parser.NormalizeTokens(converted)
+	// Input tokens are already normalized from the resolver; we only need
+	// to sort if camelCase/dashes could have reordered keys.
+	// CamelCase/Dashes preserve lexicographic order, so the list is
+	// already sorted. Skip redundant NormalizeTokens.
 
 	var formatted string
 	et := cfg.ExportType

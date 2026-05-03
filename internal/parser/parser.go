@@ -1,6 +1,7 @@
 package parser
 
 import (
+	"bytes"
 	"io"
 	"slices"
 	"strings"
@@ -25,6 +26,20 @@ type Compose struct {
 	From    string
 }
 
+// Sentinel byte slices for hot-path token comparisons (zero-allocation).
+var (
+	bImport        = []byte("@import")
+	bKeyframes     = []byte("@keyframes")
+	bValue         = []byte("@value")
+	bComposes      = []byte("composes")
+	bFrom          = []byte("from")
+	bAnimation     = []byte("animation")
+	bAnimationName = []byte("animation-name")
+	bGlobal        = []byte("global(")
+	bExport        = []byte("export")
+	bGlobalPseudo  = []byte(":global")
+)
+
 // knownKeywords is a set of CSS keywords that should not be treated as animation names.
 var knownKeywords = map[string]bool{
 	"none": true, "initial": true, "inherit": true, "unset": true,
@@ -44,7 +59,6 @@ func ExtractTokens(src []byte) (*Tokens, error) {
 	t := &Tokens{}
 
 	var prevTyp css.TokenType
-	var prevText []byte
 
 	for {
 		typ, text := l.Next()
@@ -57,7 +71,7 @@ func ExtractTokens(src []byte) (*Tokens, error) {
 
 		switch typ {
 		case css.AtKeywordToken:
-			if string(text) == "@import" {
+			if bytes.Equal(text, bImport) {
 				err := handleImport(l, t)
 				if err != nil {
 					return nil, err
@@ -70,15 +84,14 @@ func ExtractTokens(src []byte) (*Tokens, error) {
 			}
 
 		case css.IdentToken:
-			s := string(text)
-			if s == "export" && prevTyp == css.ColonToken && string(prevText) == ":" {
+			if bytes.Equal(text, bExport) && prevTyp == css.ColonToken {
 				err := handleExportBlock(l, t)
 				if err != nil {
 					return nil, err
 				}
 			}
 		case css.FunctionToken:
-			if string(text) == "global(" {
+			if bytes.Equal(text, bGlobal) {
 				// skip until matching )
 				for {
 					t2, _ := l.Next()
@@ -88,7 +101,7 @@ func ExtractTokens(src []byte) (*Tokens, error) {
 				}
 			}
 		case css.DelimToken:
-			if text[0] == '.' {
+			if len(text) > 0 && text[0] == '.' {
 				className, err := readClassName(l)
 				if err != nil {
 					return nil, err
@@ -101,7 +114,6 @@ func ExtractTokens(src []byte) (*Tokens, error) {
 		}
 
 		prevTyp = typ
-		prevText = text
 	}
 
 	return t, nil
@@ -114,7 +126,7 @@ func extractComposesFromCurrentRule(l *css.Lexer, t *Tokens, className string) {
 		if typ == css.ErrorToken {
 			return
 		}
-		if typ == css.FunctionToken && string(text) == "global(" {
+		if typ == css.FunctionToken && bytes.Equal(text, bGlobal) {
 			// skip until matching )
 			for {
 				t2, _ := l.Next()
@@ -124,7 +136,7 @@ func extractComposesFromCurrentRule(l *css.Lexer, t *Tokens, className string) {
 			}
 			continue
 		}
-		if typ == css.DelimToken && text[0] == '.' {
+		if typ == css.DelimToken && len(text) > 0 && text[0] == '.' {
 			// Found another class selector, extract it
 			className2, err := readClassName(l)
 			if err == nil && className2 != "" {
@@ -158,7 +170,7 @@ func extractComposesFromCurrentRule(l *css.Lexer, t *Tokens, className string) {
 			continue
 		}
 		// Skip global() blocks at any depth
-		if typ == css.FunctionToken && string(text) == "global(" {
+		if typ == css.FunctionToken && bytes.Equal(text, bGlobal) {
 			for {
 				t2, _ := l.Next()
 				if t2 == css.ErrorToken || t2 == css.RightParenthesisToken {
@@ -169,7 +181,7 @@ func extractComposesFromCurrentRule(l *css.Lexer, t *Tokens, className string) {
 		}
 
 		// Extract class names from selectors at any depth
-		if typ == css.DelimToken && text[0] == '.' {
+		if typ == css.DelimToken && len(text) > 0 && text[0] == '.' {
 			className2, err := readClassName(l)
 			if err == nil && className2 != "" {
 				t.Classes = append(t.Classes, className2)
@@ -178,7 +190,7 @@ func extractComposesFromCurrentRule(l *css.Lexer, t *Tokens, className string) {
 		}
 
 		// Only look for composes at the top level of the current block
-		if blockDepth == 1 && typ == css.IdentToken && string(text) == "composes" {
+		if blockDepth == 1 && typ == css.IdentToken && bytes.Equal(text, bComposes) {
 			// expect :
 			t2, _ := l.Next()
 			for t2 == css.WhitespaceToken {
@@ -198,7 +210,7 @@ func extractComposesFromCurrentRule(l *css.Lexer, t *Tokens, className string) {
 				if t3 == css.WhitespaceToken {
 					continue
 				}
-				if t3 == css.IdentToken && string(text3) == "from" {
+				if t3 == css.IdentToken && bytes.Equal(text3, bFrom) {
 					// read path string
 					for {
 						t4, text4 := l.Next()
@@ -226,7 +238,7 @@ func extractComposesFromCurrentRule(l *css.Lexer, t *Tokens, className string) {
 		}
 
 		// Extract animation names from animation / animation-name properties at any depth
-		if typ == css.IdentToken && (string(text) == "animation" || string(text) == "animation-name") {
+		if typ == css.IdentToken && (bytes.Equal(text, bAnimation) || bytes.Equal(text, bAnimationName)) {
 			// expect :
 			t2, _ := l.Next()
 			for t2 == css.WhitespaceToken {
@@ -281,10 +293,10 @@ func handleImport(l *css.Lexer, t *Tokens) error {
 }
 
 func handleAtRule(l *css.Lexer, name []byte, t *Tokens) error {
-	switch string(name) {
-	case "@keyframes":
+	switch {
+	case bytes.Equal(name, bKeyframes):
 		return handleKeyframes(l, t)
-	case "@value":
+	case bytes.Equal(name, bValue):
 		return handleValue(l, t)
 	}
 	return skipAtRuleBlock(l, t)
@@ -303,7 +315,7 @@ func handleKeyframes(l *css.Lexer, t *Tokens) error {
 	name := string(text)
 
 	// skip :global(...) wrapper
-	if name == ":global" {
+	if bytes.Equal(text, bGlobalPseudo) {
 		// skip whitespace then consume (
 		typ, txt := l.Next()
 		for typ == css.WhitespaceToken {
@@ -428,7 +440,7 @@ func skipAtRuleBlock(l *css.Lexer, t *Tokens) error {
 		if typ == css.ErrorToken {
 			break
 		}
-		if typ == css.FunctionToken && string(text) == "global(" {
+		if typ == css.FunctionToken && bytes.Equal(text, bGlobal) {
 			for {
 				t2, _ := l.Next()
 				if t2 == css.ErrorToken || t2 == css.RightParenthesisToken {
