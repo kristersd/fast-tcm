@@ -1,6 +1,6 @@
 {
   "name": "fast-tcm",
-  "version": "0.3.2",
+  "version": "0.3.3",
   "description": "Go rewrite of typed-css-modules",
   "license": "MIT",
   "repository": {
@@ -29,7 +29,6 @@
     "compare:time": "node ./scripts/compare-time.js",
     "compare:time:dir": "node ./scripts/compare-time-dir.js",
     "prepack": "./scripts/build-npm-binaries.sh",
-    "prepublishOnly": "cp -r README.md LICENSE npm/",
     "pub": "npm publish --access public"
   },
   "files": [
