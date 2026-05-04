@@ -12,10 +12,8 @@ import (
 	"github.com/kristersd/fast-tcm/internal/parser"
 )
 
-// FileReader reads file contents by path.
 type FileReader func(path string) ([]byte, error)
 
-// Resolver resolves CSS Modules dependencies and collects all exported tokens.
 type Resolver struct {
 	read    FileReader
 	cache   sync.Map // key string -> *parser.Tokens
@@ -23,7 +21,6 @@ type Resolver struct {
 	rootDir string
 }
 
-// NewResolver creates a new resolver.
 func NewResolver(rootDir string, read FileReader) *Resolver {
 	if read == nil {
 		read = os.ReadFile
@@ -34,13 +31,6 @@ func NewResolver(rootDir string, read FileReader) *Resolver {
 	}
 }
 
-// ClearCache clears the parse cache.
-func (r *Resolver) ClearCache() {
-	r.cache = sync.Map{}
-	r.group = singleflight.Group{}
-}
-
-// Resolve parses a CSS file and resolves all composes/import dependencies.
 func (r *Resolver) Resolve(filePath string) ([]string, error) {
 	return r.resolveWithVisiting(filePath, nil)
 }
@@ -53,8 +43,7 @@ func (r *Resolver) resolveWithVisiting(filePath string, visiting []string) ([]st
 
 	all := tokens.AllTokens()
 
-	// Fast path: no imports means no cycle resolution needed, and AllTokens
-	// is already normalized.
+	// Fast path: no imports means no cycle resolution needed
 	if len(tokens.Imports) == 0 {
 		return all, nil
 	}
@@ -99,11 +88,10 @@ func (r *Resolver) resolveFile(filePath string) (*parser.Tokens, error) {
 		return cached.(*parser.Tokens), nil
 	}
 
-	// Use singleflight to ensure only one parse per file under concurrent load.
-	// Multiple goroutines may race to the Load above; singleflight collapses
-	// the redundant ones. A double-check inside Do handles the case where a
-	// previous caller stored the result between our Load and entering Do.
+	// Use singleflight to ensure only one parse per file under race conditions.
 	val, err, _ := r.group.Do(absPath, func() (interface{}, error) {
+		// Double-check cache inside singleflight to avoid redundant work if another
+		// caller already parsed and stored the result.
 		if cached, ok := r.cache.Load(absPath); ok {
 			return cached, nil
 		}
@@ -134,9 +122,7 @@ func (r *Resolver) resolveImportPath(fromFile, importPath string) string {
 		return importPath
 	}
 
-	// handle node_modules style imports
 	if !strings.HasPrefix(importPath, ".") {
-		// try to resolve from rootDir/node_modules
 		modPath := filepath.Join(r.rootDir, "node_modules", importPath)
 		if _, err := os.Stat(modPath); err == nil {
 			return modPath

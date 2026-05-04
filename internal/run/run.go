@@ -16,10 +16,8 @@ import (
 	"github.com/kristersd/fast-tcm/internal/resolver"
 )
 
-// ErrDifferent is returned by Run when --listDifferent finds differences.
 var ErrDifferent = errors.New("some files are different or missing")
 
-// Options holds CLI options.
 type Options struct {
 	Pattern                  string
 	OutDir                   string
@@ -31,7 +29,6 @@ type Options struct {
 	ListDifferent            bool
 }
 
-// Run executes the generation process.
 func Run(searchDir string, opts Options) error {
 	pattern := opts.Pattern
 	if pattern == "" {
@@ -65,45 +62,32 @@ func Run(searchDir string, opts Options) error {
 
 	var createdDirs sync.Map
 
-	// Process files in worker pool batches to avoid spawning thousands of goroutines.
-	// For I/O-bound work we want more workers than CPUs; for CPU-bound, fewer.
-	// We use a higher limit because most time is spent in syscalls (read/write).
-	numWorkers := runtime.NumCPU() * 4
-	if numWorkers < 32 {
-		numWorkers = 32
-	}
-	if numWorkers > 256 {
-		numWorkers = 256
-	}
+	// We spawn more workers than CPUs as most of the time is spent on syscalls (read/write)
+	numWorkers := max(32, min(runtime.NumCPU()*4, 256))
 
 	g := new(errgroup.Group)
 	g.SetLimit(numWorkers)
 
+	var op func(string) error
 	if opts.ListDifferent {
-		// For list-different, each file is independent — use the same batch model
-		for _, batch := range chunkFiles(files, 50) {
-			batch := batch
-			g.Go(func() error {
-				for _, f := range batch {
-					if err := checkFile(f, searchDir, res, cfg, baseDir, opts); err != nil {
-						return err
-					}
-				}
-				return nil
-			})
+		op = func(f string) error {
+			return checkFile(f, searchDir, res, cfg, baseDir, opts)
 		}
 	} else {
-		for _, batch := range chunkFiles(files, 50) {
-			batch := batch
-			g.Go(func() error {
-				for _, f := range batch {
-					if err := writeFile(f, searchDir, res, cfg, baseDir, opts, &createdDirs); err != nil {
-						return err
-					}
-				}
-				return nil
-			})
+		op = func(f string) error {
+			return writeFile(f, searchDir, res, cfg, baseDir, opts, &createdDirs)
 		}
+	}
+
+	for _, batch := range chunkFiles(files, numWorkers) {
+		g.Go(func() error {
+			for _, f := range batch {
+				if err := op(f); err != nil {
+					return err
+				}
+			}
+			return nil
+		})
 	}
 
 	err = g.Wait()
@@ -124,10 +108,7 @@ func chunkFiles(files []string, chunkSize int) [][]string {
 	}
 	var chunks [][]string
 	for i := 0; i < len(files); i += chunkSize {
-		end := i + chunkSize
-		if end > len(files) {
-			end = len(files)
-		}
+		end := min(i+chunkSize, len(files))
 		chunks = append(chunks, files[i:end])
 	}
 	return chunks

@@ -489,7 +489,6 @@ func skipUntilSemicolon(l *css.Lexer) error {
 	}
 }
 
-// NormalizeTokens deduplicates and sorts tokens alphabetically.
 func NormalizeTokens(tokens []string) []string {
 	seen := make(map[string]struct{}, len(tokens))
 	uniq := make([]string, 0, len(tokens))
@@ -527,12 +526,10 @@ func toCamelCase(s string, lowerFirst bool) string {
 	return builder.String()
 }
 
-// CamelCase converts a token to camelCase
 func CamelCase(s string) string {
 	return toCamelCase(s, true)
 }
 
-// DashesCamelCase only camelizes dashes, keeps first-part case.
 func DashesCamelCase(s string) string {
 	return toCamelCase(s, false)
 }
@@ -556,7 +553,6 @@ func IsValidIdentifier(s string) bool {
 	return true
 }
 
-// ConvertKey applies camelCase transformation.
 func ConvertKey(key string, camelCase bool, dashes bool) string {
 	if dashes {
 		return DashesCamelCase(key)
@@ -567,7 +563,6 @@ func ConvertKey(key string, camelCase bool, dashes bool) string {
 	return key
 }
 
-// AllTokens returns merged list of classes, keyframes, values, exports.
 func (t *Tokens) AllTokens() []string {
 	all := make([]string, 0, len(t.Classes)+len(t.Keyframes)+len(t.Values)+len(t.Exports))
 	all = append(all, t.Classes...)
