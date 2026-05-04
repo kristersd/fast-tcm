@@ -10,7 +10,6 @@ import (
 	"github.com/tdewolff/parse/v2/css"
 )
 
-// Tokens holds extracted identifiers from a CSS Modules file.
 type Tokens struct {
 	Classes   []string
 	Keyframes []string
@@ -20,13 +19,11 @@ type Tokens struct {
 	Imports   []string // @import paths
 }
 
-// Compose represents a composes: ... from "..." declaration.
 type Compose struct {
 	Classes []string
 	From    string
 }
 
-// Sentinel byte slices for hot-path token comparisons (zero-allocation).
 var (
 	bImport        = []byte("@import")
 	bKeyframes     = []byte("@keyframes")
@@ -42,18 +39,33 @@ var (
 
 // knownKeywords is a set of CSS keywords that should not be treated as animation names.
 var knownKeywords = map[string]bool{
-	"none": true, "initial": true, "inherit": true, "unset": true,
-	"revert": true, "revert-layer": true,
-	"linear": true, "ease": true, "ease-in": true, "ease-out": true,
-	"ease-in-out": true, "step-start": true, "step-end": true,
-	"normal": true, "reverse": true, "alternate": true, "alternate-reverse": true,
-	"forwards": true, "backwards": true, "both": true,
-	"running": true, "paused": true,
-	"infinite": true,
-	"auto": true, "default": true,
+	"auto":              true,
+	"default":           true,
+	"ease-in-out":       true,
+	"step-start":        true,
+	"step-end":          true,
+	"forwards":          true,
+	"backwards":         true,
+	"both":              true,
+	"infinite":          true,
+	"linear":            true,
+	"ease":              true,
+	"ease-in":           true,
+	"ease-out":          true,
+	"none":              true,
+	"initial":           true,
+	"inherit":           true,
+	"unset":             true,
+	"normal":            true,
+	"reverse":           true,
+	"alternate":         true,
+	"alternate-reverse": true,
+	"revert":            true,
+	"revert-layer":      true,
+	"running":           true,
+	"paused":            true,
 }
 
-// ExtractTokens parses CSS/PCSS content and extracts CSS Modules tokens.
 func ExtractTokens(src []byte) (*Tokens, error) {
 	l := css.NewLexer(parse.NewInputBytes(src))
 	t := &Tokens{}
@@ -491,28 +503,38 @@ func NormalizeTokens(tokens []string) []string {
 	return uniq
 }
 
-// CamelCase converts a token to camelCase (lowercases first part).
-func CamelCase(s string) string {
+func toCamelCase(s string, lowerFirst bool) string {
 	parts := strings.Split(s, "-")
-	result := strings.ToLower(parts[0])
-	for i := 1; i < len(parts); i++ {
-		if len(parts[i]) > 0 {
-			result += strings.ToUpper(parts[i][:1]) + parts[i][1:]
+	var builder strings.Builder
+	builder.Grow(len(s))
+
+	for i, part := range parts {
+		if len(part) == 0 {
+			continue
 		}
+		if i == 0 {
+			if lowerFirst {
+				builder.WriteString(strings.ToLower(part))
+			} else {
+				builder.WriteString(part)
+			}
+			continue
+		}
+
+		builder.WriteString(strings.ToUpper(part[:1]))
+		builder.WriteString(part[1:])
 	}
-	return result
+	return builder.String()
+}
+
+// CamelCase converts a token to camelCase
+func CamelCase(s string) string {
+	return toCamelCase(s, true)
 }
 
 // DashesCamelCase only camelizes dashes, keeps first-part case.
 func DashesCamelCase(s string) string {
-	parts := strings.Split(s, "-")
-	result := parts[0]
-	for i := 1; i < len(parts); i++ {
-		if len(parts[i]) > 0 {
-			result += strings.ToUpper(parts[i][:1]) + parts[i][1:]
-		}
-	}
-	return result
+	return toCamelCase(s, false)
 }
 
 // IsValidIdentifier checks if s is a valid TypeScript/JavaScript identifier.

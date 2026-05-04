@@ -24,7 +24,6 @@ type Options struct {
 	Pattern                  string
 	OutDir                   string
 	CamelCase                bool
-	NamedExports             bool
 	ExportType               string
 	AllowArbitraryExtensions bool
 	DropExtension            bool
@@ -61,17 +60,7 @@ func Run(searchDir string, opts Options) error {
 		AllowArbitraryExtensions: opts.AllowArbitraryExtensions,
 		DropExtension:            opts.DropExtension,
 		EOL:                      "\n",
-	}
-
-	if opts.NamedExports {
-		cfg.ExportType = generate.ExportNamed
-		cfg.CamelCase = true
-	} else {
-		cfg.ExportType = generate.ExportType(opts.ExportType)
-	}
-
-	if opts.CamelCase {
-		cfg.CamelCase = true
+		ExportType:               generate.ExportType(opts.ExportType),
 	}
 
 	var createdDirs sync.Map

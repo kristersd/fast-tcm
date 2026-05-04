@@ -23,8 +23,6 @@ func main() {
 	flag.BoolVar(&opts.ListDifferent, "listDifferent", false, "List any files that are different than those that would be generated")
 	flag.BoolVar(&opts.CamelCase, "c", false, "Camelize CSS token names")
 	flag.BoolVar(&opts.CamelCase, "camelCase", false, "Camelize CSS token names")
-	flag.BoolVar(&opts.NamedExports, "e", false, "Use named exports (deprecated, use --exportType)")
-	flag.BoolVar(&opts.NamedExports, "namedExports", false, "Use named exports (deprecated, use --exportType)")
 	flag.StringVar(&opts.ExportType, "exportType", "commonjs", "Export type: commonjs, default, named")
 	flag.BoolVar(&opts.AllowArbitraryExtensions, "a", false, "Use .d.css.ts extension for arbitrary extensions")
 	flag.BoolVar(&opts.AllowArbitraryExtensions, "allowArbitraryExtensions", false, "Use .d.css.ts extension for arbitrary extensions")
@@ -52,11 +50,6 @@ func main() {
 	if len(args) < 1 && opts.Pattern == "" {
 		flag.Usage()
 		os.Exit(1)
-	}
-
-	// Warn about deprecated namedExports flag
-	if opts.NamedExports {
-		fmt.Fprintf(os.Stderr, "[WARN] --namedExports is deprecated, use --exportType named\n")
 	}
 
 	searchDir := "."

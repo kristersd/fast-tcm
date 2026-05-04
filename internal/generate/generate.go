@@ -8,7 +8,6 @@ import (
 	"github.com/kristersd/fast-tcm/internal/parser"
 )
 
-// ExportType controls how declarations are exported.
 type ExportType string
 
 const (
@@ -17,18 +16,15 @@ const (
 	ExportNamed    ExportType = "named"
 )
 
-// Config holds generation options.
 type Config struct {
 	CamelCase                bool
 	Dashes                   bool
-	NamedExports             bool
 	ExportType               ExportType
 	AllowArbitraryExtensions bool
 	DropExtension            bool
 	EOL                      string
 }
 
-// Output represents a generated .d.ts file.
 type Output struct {
 	Tokens    []string
 	Formatted string
@@ -42,7 +38,7 @@ func Generate(tokens []string, cfg Config) (*Output, error) {
 
 	for _, t := range tokens {
 		key := parser.ConvertKey(t, cfg.CamelCase, cfg.Dashes)
-		if cfg.NamedExports || cfg.ExportType == ExportNamed {
+		if cfg.ExportType == ExportNamed {
 			// named exports require valid identifiers
 			if !parser.IsValidIdentifier(key) {
 				continue
@@ -55,16 +51,8 @@ func Generate(tokens []string, cfg Config) (*Output, error) {
 		converted = append(converted, key)
 	}
 
-	// Input tokens are already normalized from the resolver; we only need
-	// to sort if camelCase/dashes could have reordered keys.
-	// CamelCase/Dashes preserve lexicographic order, so the list is
-	// already sorted. Skip redundant NormalizeTokens.
-
 	var formatted string
 	et := cfg.ExportType
-	if cfg.NamedExports && et == "" {
-		et = ExportNamed
-	}
 	if et == "" {
 		et = ExportCommonJS
 	}
@@ -116,7 +104,6 @@ func Generate(tokens []string, cfg Config) (*Output, error) {
 	}, nil
 }
 
-// OutputFileName computes the output filename.
 func OutputFileName(inputPath string, cfg Config) string {
 	ext := filepath.Ext(inputPath)
 	base := inputPath
