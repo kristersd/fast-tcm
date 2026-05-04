@@ -1,6 +1,6 @@
 {
   "name": "fast-tcm",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "description": "Go rewrite of typed-css-modules",
   "license": "MIT",
   "repository": {
