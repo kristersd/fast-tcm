@@ -1,8 +1,6 @@
 # fast-tcm
 
-A high-performance CSS Modules type definition generator written in Go. Generates `.d.ts` files for `.css` and `.pcss` (PostCSS) files with support for `@keyframes`, `@value`, `:export`, and `composes`.
-
-Approximately **8.5x faster** than [typed-css-modules](https://github.com/Quramy/typed-css-modules).
+A high-performance CSS Modules type definition generator written in Go. Generates `.d.ts` files for `.css` and `.pcss` (PostCSS) files with support for `@keyframes`, `@value`, `:export`, and `composes`. Additionally, it offers options for export formats, camelCase conversion, and custom glob patterns.
 
 ## Installation
 
@@ -24,6 +22,7 @@ This generates `.d.ts` files alongside `.css` and `.pcss` files in `src` and sub
 
 - `.css` (standard CSS)
 - `.pcss` (PostCSS)
+- Other formats may be supported, use with caution and consider `--allowArbitraryExtensions`.
 
 ## Options
 
@@ -34,7 +33,9 @@ This generates `.d.ts` files alongside `.css` and `.pcss` files in `src` and sub
 - `--outDir <dir>` — Write `.d.ts` files to a different directory
 - `--pattern <glob>` — Custom glob pattern to match files (default: `**/*.{css,pcss}`)
 - `--listDifferent` — List files with out-of-date or missing `.d.ts` (exit code 1 if any found)
-- `--watch` — Watch for file changes and regenerate on-the-fly
+- `--silent` — Suppress all output (implies `--listDifferent`)
+- `--version` — Show version information
+- `--help` — Show usage information
 
 ## Example
 

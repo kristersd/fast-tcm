@@ -173,6 +173,19 @@ export = styles;
 	}
 }
 
+func TestUpstreamSASS(t *testing.T) {
+	got := runOnFixture(t, "testdata/upstream/sass.scss", generate.Config{ExportType: generate.ExportCommonJS, EOL: "\n"})
+	want := `declare const styles: {
+  readonly "container": string;
+};
+export = styles;
+
+`
+	if got != want {
+		t.Fatalf("mismatch:\nwant:\n%s\ngot:\n%s", want, got)
+	}
+}
+
 func TestExtensionPCSSOutputName(t *testing.T) {
 	name := generate.OutputFileName("style.pcss", generate.Config{})
 	if name != "style.pcss.d.ts" {

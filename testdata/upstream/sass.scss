@@ -1,0 +1,36 @@
+$primary-color: #3498db;
+$font-stack: Helvetica, sans-serif;
+$spacing: 20px;
+
+@mixin flex-center {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+body {
+  font: 100% $font-stack;
+  background-color: #f4f4f4;
+  margin: 0;
+}
+
+.container {
+  max-width: 1200px;
+  margin: $spacing auto;
+  padding: $spacing;
+  @include flex-center;
+
+  h1 {
+    color: $primary-color;
+    font-size: 2.5rem;
+
+    &:hover {
+      color: darken($primary-color, 15%);
+    }
+  }
+
+  p {
+    line-height: 1.6;
+    color: #333;
+  }
+}

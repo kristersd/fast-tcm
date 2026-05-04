@@ -23,7 +23,7 @@ func main() {
 	flag.BoolVar(&opts.ListDifferent, "listDifferent", false, "List any files that are different than those that would be generated")
 	flag.BoolVar(&opts.CamelCase, "c", false, "Camelize CSS token names")
 	flag.BoolVar(&opts.CamelCase, "camelCase", false, "Camelize CSS token names")
-	flag.StringVar(&opts.ExportType, "exportType", "commonjs", "Export type: commonjs, default, named")
+	flag.StringVar(&opts.ExportType, "exportType", "default", "Export type: commonjs, default, named")
 	flag.BoolVar(&opts.AllowArbitraryExtensions, "a", false, "Use .d.css.ts extension for arbitrary extensions")
 	flag.BoolVar(&opts.AllowArbitraryExtensions, "allowArbitraryExtensions", false, "Use .d.css.ts extension for arbitrary extensions")
 	flag.BoolVar(&opts.DropExtension, "d", false, "Drop the input files extension")
